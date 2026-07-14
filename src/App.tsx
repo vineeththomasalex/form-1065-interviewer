@@ -16,8 +16,18 @@ import {
   totalExpenses,
 } from './domain'
 import {
+  allocationTotals,
+  isUnitedStatesCountry,
+  maximumScheduleB1Percent,
+  partnerDisplayName,
+  partnerEntityType,
+  partnerScheduleValues,
+  partnersRequiringScheduleB1,
+} from './schedules'
+import {
   clearSavedDraft,
   loadSavedDraft,
+  migrateDraft,
   saveDraft,
 } from './storage'
 import type {
@@ -37,6 +47,7 @@ const steps = [
   { title: 'Complexity check', eyebrow: 'Keep this accurate' },
   { title: 'Money received', eyebrow: 'Income vs. contributions' },
   { title: 'Business expenses', eyebrow: '2025 deductions' },
+  { title: 'Partner schedules', eyebrow: 'B-1 and K-1 details' },
   { title: 'Representative', eyebrow: 'IRS contact' },
   { title: 'Review & download', eyebrow: 'Draft Form 1065' },
 ]
@@ -73,7 +84,7 @@ function App() {
       .then((saved) => {
         if (saved) {
           setDraft(saved)
-          setSaveStatus('Saved details restored. EINs are never auto-saved.')
+          setSaveStatus('Saved details restored. Tax IDs are never auto-saved.')
         } else {
           setSaveStatus('Ready. Answers will be saved on this device.')
         }
@@ -86,7 +97,7 @@ function App() {
     setSaveStatus('Saving…')
     const timer = window.setTimeout(() => {
       saveDraft(draft)
-        .then(() => setSaveStatus('Saved on this device · EIN excluded'))
+        .then(() => setSaveStatus('Saved on this device · tax IDs excluded'))
         .catch((error: unknown) => {
           setSaveStatus(
             error instanceof Error ? `Could not save: ${error.message}` : 'Could not save locally',
@@ -121,19 +132,30 @@ function App() {
     setGenerationError('')
     setIsGenerating(true)
     try {
-      const sourceUrl = `${import.meta.env.BASE_URL}forms/f1065--2025.pdf`
-      const response = await fetch(sourceUrl)
-      if (!response.ok) {
-        throw new Error(`Could not load the bundled IRS form (${response.status}).`)
+      const sourceNames = {
+        form1065: 'forms/f1065--2025.pdf',
+        scheduleB1: 'forms/f1065sb1.pdf',
+        scheduleK1: 'forms/f1065sk1--2025.pdf',
       }
-      const { generateForm1065 } = await import('./pdf')
-      const bytes = await generateForm1065(
-        new Uint8Array(await response.arrayBuffer()),
-        draft,
+      const sourceEntries = await Promise.all(
+        Object.entries(sourceNames).map(async ([key, path]) => {
+          const response = await fetch(`${import.meta.env.BASE_URL}${path}`)
+          if (!response.ok) {
+            throw new Error(`Could not load ${path} (${response.status}).`)
+          }
+          return [key, new Uint8Array(await response.arrayBuffer())] as const
+        }),
       )
+      const sources = Object.fromEntries(sourceEntries) as {
+        form1065: Uint8Array
+        scheduleB1: Uint8Array
+        scheduleK1: Uint8Array
+      }
+      const { generateFilingPackage } = await import('./companionPdf')
+      const bytes = await generateFilingPackage(sources, draft)
       downloadBlob(
         new Blob([Uint8Array.from(bytes)], { type: 'application/pdf' }),
-        `DRAFT-2025-Form-1065-${fileSafe(draft.business.legalName)}.pdf`,
+        `DRAFT-2025-1065-Filing-Package-${fileSafe(draft.business.legalName)}.pdf`,
       )
     } catch (error) {
       setGenerationError(
@@ -154,8 +176,8 @@ function App() {
   const importDraft = async (file?: File) => {
     if (!file) return
     try {
-      const candidate = JSON.parse(await file.text()) as ReturnDraft
-      if (candidate.version !== 1 || !Array.isArray(candidate.partners)) {
+      const candidate = migrateDraft(JSON.parse(await file.text()))
+      if (!candidate) {
         throw new Error('This is not a supported Form 1065 draft export.')
       }
       setDraft(candidate)
@@ -198,7 +220,7 @@ function App() {
 
       <div className="privacy-banner">
         <strong>Your answers stay in this browser.</strong> There is no account or backend.
-        Names and addresses autosave locally; the EIN does not.
+        Names and addresses autosave locally; partnership and partner tax IDs do not.
       </div>
 
       <div className="workspace">
@@ -218,7 +240,10 @@ function App() {
             <div>Official IRS sources</div>
             <a href={OFFICIAL_SOURCES.form} target="_blank">2025 Form 1065</a>
             <a href={OFFICIAL_SOURCES.instructions} target="_blank">2025 instructions</a>
-            <a href={OFFICIAL_SOURCES.landing} target="_blank">Form landing page</a>
+            <a href={OFFICIAL_SOURCES.scheduleB1} target="_blank">Schedule B-1</a>
+            <a href={OFFICIAL_SOURCES.scheduleK1} target="_blank">2025 Schedule K-1</a>
+            <a href={OFFICIAL_SOURCES.scheduleK1Instructions} target="_blank">K-1 instructions</a>
+            <a href={OFFICIAL_SOURCES.landing} target="_blank">IRS Form 1065 page</a>
           </div>
         </aside>
 
@@ -256,7 +281,7 @@ function App() {
                 disabled={eligibility.blockers.length > 0 || isGenerating}
                 onClick={generatePdf}
               >
-                {isGenerating ? 'Preparing PDF…' : 'Download draft Form 1065'}
+                {isGenerating ? 'Preparing package…' : 'Download draft filing package'}
               </button>
             )}
           </div>
@@ -365,8 +390,10 @@ function renderStep(
     case 7:
       return <ExpenseStep draft={draft} updateDraft={updateDraft} />
     case 8:
-      return <RepresentativeStep draft={draft} updateDraft={updateDraft} />
+      return <PartnerSchedulesStep draft={draft} updateDraft={updateDraft} />
     case 9:
+      return <RepresentativeStep draft={draft} updateDraft={updateDraft} />
+    case 10:
       return <ReviewStep draft={draft} late={late} eligibility={eligibility} />
     default:
       return null
@@ -435,7 +462,7 @@ function BusinessStep({
           return current
         })}
       />
-      <Field label="What did the business mainly do?">
+      <Field label="Choose a business-activity starting point">
         <select
           value={selectedPreset}
           onChange={(event) => {
@@ -454,6 +481,10 @@ function BusinessStep({
           ))}
         </select>
       </Field>
+      <InfoBlock title="Presets never lock the answer">
+        The selection only suggests a description and code. Every field below remains
+        editable, and “Enter my own” clears the suggestions for fully manual entry.
+      </InfoBlock>
       <div className="field-grid">
         <Field label="Principal business activity">
           <input
@@ -483,7 +514,50 @@ function BusinessStep({
             inputMode="numeric"
           />
         </Field>
+        <Field label="Accounting method">
+          <select
+            value={draft.business.accountingMethod}
+            onChange={(event) => updateDraft((current) => {
+              current.business.accountingMethod = event.target.value as ReturnDraft['business']['accountingMethod']
+              return current
+            })}
+          >
+            <option value="cash">Cash</option>
+            <option value="accrual">Accrual</option>
+            <option value="other">Other / custom</option>
+          </select>
+        </Field>
+        {draft.business.accountingMethod === 'other' && (
+          <Field label="Custom accounting method">
+            <input
+              value={draft.business.customAccountingMethod}
+              onChange={(event) => updateDraft((current) => {
+                current.business.customAccountingMethod = event.target.value
+                return current
+              })}
+              placeholder="Describe the accounting method"
+            />
+          </Field>
+        )}
+        <Field
+          label="IRS center where the partnership filed"
+          hint="Enter “E-file” when appropriate, or type the center shown in your records"
+        >
+          <input
+            value={draft.business.irsFilingCenter}
+            onChange={(event) => updateDraft((current) => {
+              current.business.irsFilingCenter = event.target.value
+              return current
+            })}
+          />
+        </Field>
       </div>
+      {draft.business.accountingMethod !== 'cash' && (
+        <InlineNotice tone="warning">
+          This choice can be recorded on the form, but package generation is blocked because the
+          guided calculations model cash-basis records only.
+        </InlineNotice>
+      )}
     </>
   )
 }
@@ -502,7 +576,8 @@ function PartnersStep({
   return (
     <>
       <p className="lead">
-        Add every person who was a partner during 2025. This path assumes one managing member.
+        Add every person or entity that was a partner during 2025. The supported path keeps
+        the managing member as an individual, while other partner types can be entered manually.
       </p>
       {draft.partners.map((partner, index) => (
         <div className="partner-card" key={partner.id}>
@@ -524,18 +599,62 @@ function PartnersStep({
             )}
           </div>
           <div className="field-grid three">
-            <Field label="First name">
-              <input
-                value={partner.firstName}
-                onChange={(event) => updatePartner(updateDraft, partner.id, { firstName: event.target.value })}
-              />
+            <Field label="Partner type">
+              <select
+                value={partner.ownerKind}
+                disabled={partner.isManagingMember}
+                onChange={(event) => {
+                  const ownerKind = event.target.value as Partner['ownerKind']
+                  updatePartner(updateDraft, partner.id, {
+                    ownerKind,
+                    entityType:
+                      ownerKind === 'individual'
+                        ? 'Individual'
+                        : ownerKind === 'estate'
+                          ? 'Estate'
+                          : '',
+                  })
+                }}
+              >
+                <option value="individual">Individual</option>
+                <option value="estate">Estate</option>
+                <option value="entity">Business, trust, or organization</option>
+              </select>
             </Field>
-            <Field label="Last name">
-              <input
-                value={partner.lastName}
-                onChange={(event) => updatePartner(updateDraft, partner.id, { lastName: event.target.value })}
-              />
-            </Field>
+            {partner.ownerKind === 'individual' ? (
+              <>
+                <Field label="First name">
+                  <input
+                    value={partner.firstName}
+                    onChange={(event) => updatePartner(updateDraft, partner.id, { firstName: event.target.value })}
+                  />
+                </Field>
+                <Field label="Last name">
+                  <input
+                    value={partner.lastName}
+                    onChange={(event) => updatePartner(updateDraft, partner.id, { lastName: event.target.value })}
+                  />
+                </Field>
+              </>
+            ) : (
+              <>
+                <Field label={partner.ownerKind === 'estate' ? 'Estate name' : 'Legal name'}>
+                  <input
+                    value={partner.displayName}
+                    onChange={(event) => updatePartner(updateDraft, partner.id, { displayName: event.target.value })}
+                  />
+                </Field>
+                <Field
+                  label="Entity type"
+                  hint="Manual entry is allowed—for example, Partnership, S corporation, or Trust"
+                >
+                  <input
+                    value={partner.entityType}
+                    onChange={(event) => updatePartner(updateDraft, partner.id, { entityType: event.target.value })}
+                  />
+                </Field>
+              </>
+            )}
             <Field label="Ownership percentage">
               <div className="input-suffix">
                 <input
@@ -557,10 +676,17 @@ function PartnersStep({
             onChange={(checked) => updatePartner(updateDraft, partner.id, { useBusinessAddress: checked })}
           />
           {!partner.useBusinessAddress && (
-            <AddressFields
-              address={partner.address}
-              onChange={(address) => updatePartner(updateDraft, partner.id, { address })}
-            />
+            <>
+              <AddressFields
+                address={partner.address}
+                onChange={(address) => updatePartner(updateDraft, partner.id, { address })}
+              />
+              {!addressComplete(partner.address) && (
+                <InlineNotice tone="warning">
+                  Complete this mailing address so the partner’s Schedule K-1 has a deliverable address.
+                </InlineNotice>
+              )}
+            </>
           )}
         </div>
       ))}
@@ -570,12 +696,23 @@ function PartnersStep({
         onClick={() => updateDraft((current) => {
           current.partners.push({
             id: crypto.randomUUID(),
+            ownerKind: 'individual',
             firstName: '',
             lastName: '',
+            displayName: '',
+            entityType: 'Individual',
+            taxId: '',
+            country: 'United States',
             ownershipPercent: 0,
+            profitPercent: 0,
+            lossPercent: 0,
+            capitalPercent: 0,
             isManagingMember: false,
             useBusinessAddress: true,
             address: emptyAddress(),
+            beginningCapital: 0,
+            capitalContributed: 0,
+            cashDistributions: 0,
           })
           return current
         })}
@@ -585,13 +722,204 @@ function PartnersStep({
       <InlineNotice tone={Math.abs(ownershipTotal - 100) < 0.01 ? 'success' : 'warning'}>
         Ownership entered: {formatNumber(ownershipTotal)}%. It must total 100%.
       </InlineNotice>
-      {draft.partners.some((partner) => partner.ownershipPercent >= 50) && (
-        <InfoBlock title="Schedule B-1 warning">
-          Form 1065 asks for Schedule B-1 when an individual directly or indirectly owns
-          50% or more of profit, loss, or capital. This app flags that companion form but
-          does not generate it yet.
+      {partnersRequiringScheduleB1(draft).length > 0 && (
+        <InfoBlock title="Schedule B-1 will be included">
+          Form 1065 asks for Schedule B-1 when a person or entity directly or indirectly
+          owns 50% or more of profit, loss, or capital. The filing package will include
+          each directly entered partner meeting that threshold; indirect ownership still
+          requires manual review.
         </InfoBlock>
       )}
+    </>
+  )
+}
+
+function PartnerSchedulesStep({
+  draft,
+  updateDraft,
+}: {
+  draft: ReturnDraft
+  updateDraft: (update: (current: ReturnDraft) => ReturnDraft) => void
+}) {
+  const totals = allocationTotals(draft)
+  return (
+    <>
+      <p className="lead">
+        These answers populate Schedule B-1 and one Schedule K-1 for each partner.
+        Tax IDs remain only in the current tab and are removed from automatic browser saves.
+      </p>
+      <div className="official-form-grid">
+        <OfficialFormLink
+          title="Schedule B-1"
+          detail="Reports partners owning 50% or more."
+          href={OFFICIAL_SOURCES.scheduleB1}
+        />
+        <OfficialFormLink
+          title="2025 Schedule K-1"
+          detail="Reports each partner’s share of partnership items."
+          href={OFFICIAL_SOURCES.scheduleK1}
+        />
+        <OfficialFormLink
+          title="K-1 instructions"
+          detail="Definitions and partner reporting guidance."
+          href={OFFICIAL_SOURCES.scheduleK1Instructions}
+        />
+      </div>
+
+      {draft.partners.map((partner, index) => {
+        const values = partnerScheduleValues(draft, partner)
+        return (
+          <div className="partner-card" key={partner.id}>
+            <div className="partner-heading">
+              <div>
+                <span>{partnerDisplayName(partner) || `Partner ${index + 1}`}</span>
+                {partner.isManagingMember && <strong>Managing member</strong>}
+              </div>
+              {maximumScheduleB1Percent(draft, partner) >= 50 && <strong>B-1 owner</strong>}
+            </div>
+            <div className="field-grid three">
+              <Field
+                label={partner.ownerKind === 'individual' ? 'SSN or TIN' : 'EIN or TIN'}
+                hint="Sensitive: not auto-saved"
+              >
+                <input
+                  value={partner.taxId}
+                  onChange={(event) => updatePartner(updateDraft, partner.id, { taxId: event.target.value })}
+                  placeholder={partner.ownerKind === 'individual' ? '123-45-6789' : '12-3456789'}
+                />
+              </Field>
+              <Field
+                label={
+                  partner.ownerKind === 'individual'
+                    ? 'Country of citizenship'
+                    : 'Country of organization'
+                }
+              >
+                <input
+                  value={partner.country}
+                  onChange={(event) => updateDraft((current) => {
+                    const currentPartner = current.partners.find((item) => item.id === partner.id)
+                    if (currentPartner) currentPartner.country = event.target.value
+                    current.complexity.foreignPartner = current.partners.some(
+                      (item) => item.country.trim() && !isUnitedStatesCountry(item.country),
+                    )
+                    return current
+                  })}
+                />
+              </Field>
+              <Field label="K-1 entity type">
+                <input
+                  value={partnerEntityType(partner)}
+                  disabled={partner.ownerKind !== 'entity'}
+                  onChange={(event) => updatePartner(updateDraft, partner.id, { entityType: event.target.value })}
+                />
+              </Field>
+            </div>
+            {draft.allocations.mode === 'ownership' && (
+              <div className="calculation-strip compact">
+                <SummaryMetric label="Income allocation" value={values.currentYearIncome} />
+                <SummaryMetric label="Capital contributed" value={values.capitalContributed} />
+                <SummaryMetric label="Ending capital" value={values.endingCapital} />
+              </div>
+            )}
+            {draft.allocations.mode === 'custom' && (
+              <div className="field-grid three">
+                <Field label="Profit percentage">
+                  <div className="input-suffix">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      value={partner.profitPercent}
+                      onChange={(event) => updatePartner(updateDraft, partner.id, { profitPercent: Number(event.target.value) })}
+                    />
+                    <span>%</span>
+                  </div>
+                </Field>
+                <Field label="Loss percentage">
+                  <div className="input-suffix">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      value={partner.lossPercent}
+                      onChange={(event) => updatePartner(updateDraft, partner.id, { lossPercent: Number(event.target.value) })}
+                    />
+                    <span>%</span>
+                  </div>
+                </Field>
+                <Field label="Capital percentage">
+                  <div className="input-suffix">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      value={partner.capitalPercent}
+                      onChange={(event) => updatePartner(updateDraft, partner.id, { capitalPercent: Number(event.target.value) })}
+                    />
+                    <span>%</span>
+                  </div>
+                </Field>
+                <MoneyField
+                  label="Beginning capital account"
+                  value={partner.beginningCapital}
+                  onChange={(value) => updatePartner(updateDraft, partner.id, { beginningCapital: value })}
+                />
+                <MoneyField
+                  label="Capital contributed in 2025"
+                  value={partner.capitalContributed}
+                  onChange={(value) => updatePartner(updateDraft, partner.id, { capitalContributed: value })}
+                />
+                <MoneyField
+                  label="Cash distributions in 2025"
+                  value={partner.cashDistributions}
+                  onChange={(value) => updatePartner(updateDraft, partner.id, { cashDistributions: value })}
+                />
+              </div>
+            )}
+          </div>
+        )
+      })}
+
+      <Field label="How should K-1 percentages, contributions, and distributions be entered?">
+        <select
+          value={draft.allocations.mode}
+          onChange={(event) => updateDraft((current) => {
+            current.allocations.mode = event.target.value as ReturnDraft['allocations']['mode']
+            return current
+          })}
+        >
+          <option value="ownership">Automatically, using ownership percentages</option>
+          <option value="custom">Enter each partner’s percentages and amounts manually</option>
+        </select>
+      </Field>
+
+      {draft.allocations.mode === 'custom' && (
+        <div className="allocation-checks">
+          <AllocationCheck label="Profit percentages" actual={totals.profitPercent} expected={100} suffix="%" />
+          <AllocationCheck label="Loss percentages" actual={totals.lossPercent} expected={100} suffix="%" />
+          <AllocationCheck label="Capital percentages" actual={totals.capitalPercent} expected={100} suffix="%" />
+          <AllocationCheck label="Beginning capital" actual={totals.beginningCapital} expected={draft.finances.beginningCapital} />
+          <AllocationCheck label="Contributions" actual={totals.capitalContributed} expected={draft.finances.memberContributions} />
+          <AllocationCheck label="Distributions" actual={totals.cashDistributions} expected={draft.finances.cashDistributions} />
+        </div>
+      )}
+      {draft.partners.some(
+        (partner) => partner.country.trim() && !isUnitedStatesCountry(partner.country),
+      ) && (
+        <InlineNotice tone="warning">
+          Foreign partners are outside this guided path. Change the country or use professional
+          preparation for the additional withholding and reporting rules.
+        </InlineNotice>
+      )}
+      <InfoBlock title="Allocation review is still required" tone="warning">
+        Ownership percentages do not always determine tax allocations. The automatic option is
+        only the golden-path assumption. Use custom entry when the operating agreement or tax
+        records allocate items differently, and have the completed K-1s professionally reviewed.
+      </InfoBlock>
     </>
   )
 }
@@ -912,10 +1240,11 @@ function ReviewStep({
   eligibility: ReturnType<typeof evaluateEligibility>
 }) {
   const q4 = qualifiesForScheduleBQuestion4(draft)
+  const b1OwnerCount = partnersRequiringScheduleB1(draft).length
   return (
     <>
       <p className="lead">
-        Review the derived answers before downloading. The PDF is a draft, not a complete filing package.
+        Review the derived answers before downloading the draft filing package.
       </p>
       <div className="review-grid">
         <ReviewSection title="Partnership">
@@ -941,8 +1270,8 @@ function ReviewStep({
         <ReviewSection title="PDF output">
           <ReviewRow label="Official form" value="2025 IRS Form 1065" />
           <ReviewRow label="Other-deduction statement" value={draft.finances.otherExpenses.some((item) => item.amount > 0) ? 'Appended' : 'Not needed'} />
-          <ReviewRow label="Schedules K-1" value="Not generated" />
-          <ReviewRow label="Schedule B-1" value="Flagged; not generated" />
+          <ReviewRow label="Schedules K-1" value={`${draft.partners.length} included`} />
+          <ReviewRow label="Schedule B-1" value={b1OwnerCount > 0 ? `Included for ${b1OwnerCount} owner${b1OwnerCount === 1 ? '' : 's'}` : 'Not required from direct ownership entered'} />
         </ReviewSection>
       </div>
 
@@ -959,9 +1288,11 @@ function ReviewStep({
         <div>! Confirm the filing address or approved e-file method in the official instructions.</div>
       </div>
       <InfoBlock title="What the download contains" tone="warning">
-        The app fills supported fields on the official six-page 2025 form and appends an
-        “other deductions” statement when needed. It does not generate K-1s, B-1, state
-        returns, e-file data, or a reasonable-cause request.
+        The app fills supported fields on the official six-page 2025 Form 1065, includes
+        Schedule B-1 when direct ownership entered reaches 50%, creates one Schedule K-1
+        per partner, and appends an “other deductions” statement when needed. It does not
+        generate state returns, e-file data, indirect-ownership reporting, or a
+        reasonable-cause request.
       </InfoBlock>
     </>
   )
@@ -1137,6 +1468,46 @@ function InlineNotice({
   return <div className={`inline-notice ${tone}`}>{children}</div>
 }
 
+function OfficialFormLink({
+  title,
+  detail,
+  href,
+}: {
+  title: string
+  detail: string
+  href: string
+}) {
+  return (
+    <a className="official-form-link" href={href} target="_blank" rel="noreferrer">
+      <strong>{title}</strong>
+      <span>{detail}</span>
+      <small>Open official IRS PDF ↗</small>
+    </a>
+  )
+}
+
+function AllocationCheck({
+  label,
+  actual,
+  expected,
+  suffix,
+}: {
+  label: string
+  actual: number
+  expected: number
+  suffix?: string
+}) {
+  const matches = Math.abs(actual - expected) < 0.01
+  const display = suffix
+    ? `${formatNumber(actual)}${suffix} of ${formatNumber(expected)}${suffix}`
+    : `${formatCurrency(actual)} of ${formatCurrency(expected)}`
+  return (
+    <InlineNotice tone={matches ? 'success' : 'warning'}>
+      <strong>{label}:</strong> {display}
+    </InlineNotice>
+  )
+}
+
 function SummaryMetric({ label, value }: { label: string; value: number }) {
   return (
     <div>
@@ -1198,18 +1569,34 @@ function validateStep(step: number, draft: ReturnDraft): boolean {
         draft.business.startDate &&
         draft.business.principalActivity.trim() &&
         draft.business.productOrService.trim() &&
-        /^\d{6}$/.test(draft.business.businessCode),
+        /^\d{6}$/.test(draft.business.businessCode) &&
+        (draft.business.accountingMethod !== 'other' ||
+          draft.business.customAccountingMethod.trim()),
       )
     case 2:
       return addressComplete(draft.business.address)
     case 3: {
       const total = draft.partners.reduce((sum, partner) => sum + Number(partner.ownershipPercent || 0), 0)
+      const ownershipIsValid = draft.partners.every(
+        (partner) =>
+          Number.isFinite(partner.ownershipPercent) &&
+          partner.ownershipPercent >= 0 &&
+          partner.ownershipPercent <= 100,
+      )
       return (
         draft.partners.length >= 2 &&
-        draft.partners.every((partner) => partner.firstName.trim() && partner.lastName.trim()) &&
+        draft.partners.every((partner) =>
+          (partner.ownerKind === 'individual'
+            ? partner.firstName.trim() && partner.lastName.trim()
+            : partner.displayName.trim() &&
+              (partner.ownerKind !== 'entity' || partner.entityType.trim())) &&
+          (partner.useBusinessAddress || addressComplete(partner.address)),
+        ) &&
+        ownershipIsValid &&
         Math.abs(total - 100) < 0.01 &&
         draft.partners.filter((partner) => partner.isManagingMember).length === 1 &&
-        (draft.partners.find((partner) => partner.isManagingMember)?.ownershipPercent ?? 0) >= 50
+        (draft.partners.find((partner) => partner.isManagingMember)?.ownershipPercent ?? 0) >= 50 &&
+        draft.partners.find((partner) => partner.isManagingMember)?.ownerKind === 'individual'
       )
     }
     case 4:
@@ -1232,6 +1619,30 @@ function validateStep(step: number, draft: ReturnDraft): boolean {
         draft.finances.otherExpenses.every((item) => item.amount === 0 || item.description.trim())
       )
     case 8: {
+      const totals = allocationTotals(draft)
+      const percentagesAreValid = draft.partners.every((partner) =>
+        [partner.profitPercent, partner.lossPercent, partner.capitalPercent].every(
+          (value) => Number.isFinite(value) && value >= 0 && value <= 100,
+        ),
+      )
+      return (
+        Boolean(draft.business.irsFilingCenter.trim()) &&
+        draft.partners.every(
+          (partner) =>
+            /^(?:\d{2}-?\d{7}|\d{3}-?\d{2}-?\d{4})$/.test(partner.taxId) &&
+            isUnitedStatesCountry(partner.country),
+        ) &&
+        (draft.allocations.mode !== 'custom' ||
+          (percentagesAreValid &&
+            Math.abs(totals.profitPercent - 100) < 0.01 &&
+            Math.abs(totals.lossPercent - 100) < 0.01 &&
+            Math.abs(totals.capitalPercent - 100) < 0.01 &&
+            Math.abs(totals.beginningCapital - draft.finances.beginningCapital) < 0.01 &&
+            Math.abs(totals.capitalContributed - draft.finances.memberContributions) < 0.01 &&
+            Math.abs(totals.cashDistributions - draft.finances.cashDistributions) < 0.01))
+      )
+    }
+    case 9: {
       const representative = representativeDetails(draft)
       return Boolean(
         representative.firstName.trim() &&

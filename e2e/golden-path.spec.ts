@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-test('completes the golden path, downloads a PDF, and protects the EIN on reload', async ({
+test('completes the golden path, downloads a filing package, and protects tax IDs on reload', async ({
   page,
 }) => {
   await page.goto('/')
@@ -42,6 +42,16 @@ test('completes the golden path, downloads a PDF, and protects the EIN on reload
   await expect(page.getByText('$600')).toBeVisible()
   await page.getByRole('button', { name: 'Save and continue' }).click()
 
+  await page.getByLabel('SSN or TIN').nth(0).fill('111-22-3333')
+  await page.getByLabel('SSN or TIN').nth(1).fill('444-55-6666')
+  await expect(
+    page.getByRole('link', { name: '2025 Schedule K-1', exact: true }),
+  ).toHaveAttribute(
+    'href',
+    'https://www.irs.gov/pub/irs-prior/f1065sk1--2025.pdf',
+  )
+  await page.getByRole('button', { name: 'Save and continue' }).click()
+
   await page
     .getByLabel('U.S. phone number for the representative')
     .fill('555-555-0123')
@@ -49,11 +59,12 @@ test('completes the golden path, downloads a PDF, and protects the EIN on reload
 
   await expect(page.getByRole('heading', { name: 'Review & download' })).toBeVisible()
   await expect(page.getByText('Schedules K-1', { exact: true })).toBeVisible()
+  await expect(page.getByText('2 included')).toBeVisible()
   const downloadPromise = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Download draft Form 1065' }).click()
+  await page.getByRole('button', { name: 'Download draft filing package' }).click()
   const download = await downloadPromise
   expect(download.suggestedFilename()).toBe(
-    'DRAFT-2025-Form-1065-Example-Ventures-LLC.pdf',
+    'DRAFT-2025-1065-Filing-Package-Example-Ventures-LLC.pdf',
   )
 
   await page.reload()
@@ -62,4 +73,7 @@ test('completes the golden path, downloads a PDF, and protects the EIN on reload
     'Example Ventures LLC',
   )
   await expect(page.getByLabel('Federal EIN')).toHaveValue('')
+  await page.getByRole('button', { name: 'Partner schedules' }).click()
+  await expect(page.getByLabel('SSN or TIN').nth(0)).toHaveValue('')
+  await expect(page.getByLabel('SSN or TIN').nth(1)).toHaveValue('')
 })

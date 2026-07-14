@@ -10,12 +10,23 @@ export interface Address {
 
 export interface Partner {
   id: string
+  ownerKind: 'individual' | 'estate' | 'entity'
   firstName: string
   lastName: string
+  displayName: string
+  entityType: string
+  taxId: string
+  country: string
   ownershipPercent: number
+  profitPercent: number
+  lossPercent: number
+  capitalPercent: number
   isManagingMember: boolean
   useBusinessAddress: boolean
   address: Address
+  beginningCapital: number
+  capitalContributed: number
+  cashDistributions: number
 }
 
 export interface OtherExpense {
@@ -40,7 +51,7 @@ export interface ComplexityAnswers {
 }
 
 export interface ReturnDraft {
-  version: 1
+  version: 2
   currentStep: number
   scope: {
     domesticLlc: boolean
@@ -56,9 +67,15 @@ export interface ReturnDraft {
     principalActivity: string
     productOrService: string
     businessCode: string
+    accountingMethod: 'cash' | 'accrual' | 'other'
+    customAccountingMethod: string
+    irsFilingCenter: string
     address: Address
   }
   partners: Partner[]
+  allocations: {
+    mode: 'ownership' | 'custom'
+  }
   filing: {
     plannedFileDate: string
     extensionFiled: YesNoUnknown

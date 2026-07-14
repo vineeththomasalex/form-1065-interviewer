@@ -16,6 +16,7 @@ import {
   totalExpenses,
   totalOtherExpenses,
 } from './domain'
+import { partnersRequiringScheduleB1 } from './schedules'
 import type { ReturnDraft } from './types'
 
 export async function generateForm1065(
@@ -30,6 +31,7 @@ export async function generateForm1065(
   const receipts = netReceipts(draft)
   const expenses = totalExpenses(draft)
   const representative = representativeDetails(draft)
+  const b1Owners = partnersRequiringScheduleB1(draft)
 
   setText(form, 'f1_04[0]', draft.business.legalName)
   setText(form, 'f1_05[0]', draft.business.address.street)
@@ -46,7 +48,20 @@ export async function generateForm1065(
   if (draft.business.initialReturn) {
     check(form, 'c1_1[0]')
   }
-  selectCheckboxOption(form, 'c1_6', 0, 3)
+  const accountingIndex =
+    draft.business.accountingMethod === 'cash'
+      ? 0
+      : draft.business.accountingMethod === 'accrual'
+        ? 1
+        : 2
+  selectCheckboxOption(form, 'c1_6', accountingIndex, 3)
+  setText(
+    form,
+    'f1_17[0]',
+    draft.business.accountingMethod === 'other'
+      ? draft.business.customAccountingMethod
+      : '',
+  )
   setText(form, 'f1_18[0]', String(draft.partners.length))
 
   setText(form, 'f1_19[0]', formatAmount(draft.finances.grossReceipts))
@@ -63,8 +78,16 @@ export async function generateForm1065(
   setText(form, 'f1_44[0]', formatAmount(income))
 
   selectCheckboxOption(form, 'c2_1', 2, 6)
-  selectYesNo(form, 'c2_2', false)
-  selectYesNo(form, 'c2_3', true)
+  selectYesNo(
+    form,
+    'c2_2',
+    b1Owners.some((partner) => partner.ownerKind === 'entity'),
+  )
+  selectYesNo(
+    form,
+    'c2_3',
+    b1Owners.some((partner) => partner.ownerKind !== 'entity'),
+  )
   selectYesNo(form, 'c2_4', false)
   selectYesNo(form, 'c2_5', false)
   selectYesNo(form, 'c2_6', q4)
@@ -223,7 +246,7 @@ function appendOtherDeductionsStatement(
   })
 }
 
-function setText(form: PDFForm, suffix: string, value: string) {
+export function setText(form: PDFForm, suffix: string, value: string) {
   const field = findField(form, suffix)
   if (!(field instanceof PDFTextField)) {
     throw new Error(`Expected ${suffix} to be a text field.`)
@@ -231,11 +254,11 @@ function setText(form: PDFForm, suffix: string, value: string) {
   field.setText(value)
 }
 
-function selectYesNo(form: PDFForm, baseName: string, yes: boolean) {
+export function selectYesNo(form: PDFForm, baseName: string, yes: boolean) {
   selectCheckboxOption(form, baseName, yes ? 0 : 1, 2)
 }
 
-function selectCheckboxOption(
+export function selectCheckboxOption(
   form: PDFForm,
   baseName: string,
   selectedIndex: number,
@@ -254,7 +277,7 @@ function selectCheckboxOption(
   }
 }
 
-function check(form: PDFForm, suffix: string) {
+export function check(form: PDFForm, suffix: string) {
   const field = findField(form, suffix)
   if (!(field instanceof PDFCheckBox)) {
     throw new Error(`Expected ${suffix} to be a checkbox.`)
@@ -262,7 +285,7 @@ function check(form: PDFForm, suffix: string) {
   field.check()
 }
 
-function findField(form: PDFForm, suffix: string) {
+export function findField(form: PDFForm, suffix: string) {
   const matches = form
     .getFields()
     .filter(
@@ -277,7 +300,7 @@ function findField(form: PDFForm, suffix: string) {
   return matches[0]
 }
 
-function formatAmount(value: number): string {
+export function formatAmount(value: number): string {
   if (!Number.isFinite(value) || Math.abs(value) < 0.005) {
     return ''
   }

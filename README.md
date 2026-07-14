@@ -1,6 +1,6 @@
 # Partnership Return Guide
 
-A private, front-end-only interview that prepares a **reviewable draft** of the official 2025 IRS Form 1065 for a narrow early-stage LLC scenario.
+A private, front-end-only interview that prepares a **reviewable draft filing package** using the official 2025 IRS Form 1065, Schedule B-1, and Schedule K-1 PDFs for a narrow early-stage LLC scenario.
 
 The app runs entirely in the browser, persists ordinary answers locally, and generates the PDF without sending tax data to a server.
 
@@ -11,7 +11,7 @@ The guided path is intentionally limited to:
 - A domestic multi-member LLC taxed as a partnership
 - A calendar tax year ending December 31, 2025
 - One managing member with at least 50% ownership
-- Two to four individual partners with no ownership changes during 2025
+- Two to four partners with no ownership changes during 2025
 - Cash-basis records
 - Less than $2,000 in actual customer receipts
 - Simple member capital contributions and cash distributions
@@ -22,17 +22,18 @@ The interview explicitly separates **customer receipts** from **member contribut
 ## What it generates
 
 - The official six-page 2025 Form 1065, filled in-browser
+- Schedule B-1 page 1 when a directly entered partner owns at least 50%
+- One official 2025 Schedule K-1 for each partner
 - A simple Schedule L, M-1, and M-2 when the Schedule B question 4 exception is unavailable
 - An appended statement for page 1, line 21 other deductions when needed
 - An informational late-filing estimate based on the official `$255 × partners × months or partial months` formula, capped at 12 months
 
 ## What it does not generate
 
-- Schedules K-1
-- Schedule B-1 for a 50% or greater owner
 - State partnership returns
 - E-file data
-- Partner allocations, basis, liabilities, or capital-account tax positions
+- Indirect-ownership tracing for Schedule B-1
+- Partner basis, liabilities, or specialized capital-account tax positions
 - A reasonable-cause request or guarantee of penalty relief
 - Signatures or a filing-ready representation
 
@@ -43,14 +44,17 @@ The application is a preparation aid, not tax, legal, accounting, or filing advi
 - No backend, analytics, account, or cloud storage
 - Draft answers are stored in IndexedDB on the current browser
 - Names and addresses are autosaved for reuse
-- The partnership EIN is intentionally removed from automatic saves
-- Manual JSON exports contain the current draft, including the EIN if entered
+- The partnership EIN and every partner TIN are intentionally removed from automatic saves
+- Manual JSON exports contain the current draft, including tax IDs if entered
 - **Clear data** removes the locally saved draft
 
 ## Official IRS sources
 
 - [2025 Form 1065 PDF](https://www.irs.gov/pub/irs-prior/f1065--2025.pdf)
 - [2025 Instructions for Form 1065](https://www.irs.gov/pub/irs-prior/i1065--2025.pdf)
+- [Schedule B-1 PDF](https://www.irs.gov/pub/irs-pdf/f1065sb1.pdf)
+- [2025 Schedule K-1 PDF](https://www.irs.gov/pub/irs-prior/f1065sk1--2025.pdf)
+- [2025 Instructions for Schedule K-1](https://www.irs.gov/pub/irs-prior/i1065sk1--2025.pdf)
 - [About Form 1065](https://www.irs.gov/forms-pubs/about-form-1065)
 
 The pinned IRS PDFs are stored in `public/forms/` so PDF generation works reliably on GitHub Pages without depending on cross-origin browser access to IRS servers.
@@ -77,7 +81,9 @@ Tests cover:
 - Schedule B question 4 behavior
 - Original and extended filing deadlines
 - Month-or-partial-month penalty estimates
-- PDF round-trip assertions against the official IRS fields
+- Browser persistence boundaries for partnership and partner tax IDs
+- PDF round-trip assertions against official Form 1065, B-1, and K-1 fields
+- Filing-package merge order and page count
 
 ## Deployment
 

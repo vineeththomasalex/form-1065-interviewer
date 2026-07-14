@@ -8,6 +8,14 @@ export const OFFICIAL_SOURCES = {
   form: 'https://www.irs.gov/pub/irs-prior/f1065--2025.pdf',
   instructions: 'https://www.irs.gov/pub/irs-prior/i1065--2025.pdf',
   landing: 'https://www.irs.gov/forms-pubs/about-form-1065',
+  scheduleB1: 'https://www.irs.gov/pub/irs-pdf/f1065sb1.pdf',
+  scheduleB1Landing:
+    'https://www.irs.gov/forms-pubs/about-schedule-b-1-form-1065',
+  scheduleK1: 'https://www.irs.gov/pub/irs-prior/f1065sk1--2025.pdf',
+  scheduleK1Instructions:
+    'https://www.irs.gov/pub/irs-prior/i1065sk1--2025.pdf',
+  scheduleK1Landing:
+    'https://www.irs.gov/forms-pubs/about-schedule-k-1-form-1065',
 }
 
 export const activityPresets = [
@@ -137,6 +145,14 @@ export function evaluateEligibility(draft: ReturnDraft): EligibilityResult {
   if (!draft.scope.atLeastTwoPartners || draft.partners.length < 2) {
     blockers.push('A partnership return requires at least two partners.')
   }
+  if (!isCompleteAddress(draft.business.address)) {
+    blockers.push('The partnership needs a complete U.S. mailing address.')
+  }
+  if (draft.business.accountingMethod !== 'cash') {
+    blockers.push(
+      'Accrual and custom accounting methods are outside this cash-basis guided path.',
+    )
+  }
 
   for (const [key, label] of Object.entries(complexityLabels) as [
     keyof ReturnDraft['complexity'],
@@ -154,12 +170,105 @@ export function evaluateEligibility(draft: ReturnDraft): EligibilityResult {
   if (Math.abs(ownershipTotal - 100) > 0.01) {
     blockers.push('Partner ownership percentages must add up to 100%.')
   }
+  if (
+    draft.partners.some(
+      (partner) =>
+        !Number.isFinite(partner.ownershipPercent) ||
+        partner.ownershipPercent < 0 ||
+        partner.ownershipPercent > 100,
+    )
+  ) {
+    blockers.push('Every partner ownership percentage must be between 0% and 100%.')
+  }
 
   const managers = draft.partners.filter((partner) => partner.isManagingMember)
   if (managers.length !== 1) {
     blockers.push('The supported path requires exactly one managing member.')
   } else if (managers[0].ownershipPercent < 50) {
     blockers.push('The managing member must own at least 50% for this supported path.')
+  } else if (managers[0].ownerKind !== 'individual') {
+    blockers.push('The managing member must be an individual for this supported path.')
+  }
+
+  for (const partner of draft.partners) {
+    const name =
+      partner.ownerKind === 'individual'
+        ? `${partner.firstName} ${partner.lastName}`.trim()
+        : partner.displayName.trim()
+    if (!name) {
+      blockers.push('Every partner needs a name for Schedule K-1.')
+    }
+    if (!/^(?:\d{2}-?\d{7}|\d{3}-?\d{2}-?\d{4})$/.test(partner.taxId)) {
+      blockers.push(`${name || 'Each partner'} needs a valid nine-digit SSN or TIN for Schedule K-1.`)
+    }
+    if (!isUnitedStatesCountry(partner.country)) {
+      blockers.push(
+        `${name || 'Each partner'} is not identified as a U.S. partner; foreign partners are outside this guided path.`,
+      )
+    }
+    if (partner.ownerKind === 'entity' && !partner.entityType.trim()) {
+      blockers.push(`${name || 'Each entity partner'} needs a manually entered entity type.`)
+    }
+    if (!isCompleteAddress(effectivePartnerAddress(draft, partner))) {
+      blockers.push(`${name || 'Each partner'} needs a complete Schedule K-1 mailing address.`)
+    }
+  }
+
+  if (!draft.business.irsFilingCenter.trim()) {
+    blockers.push('Enter the IRS filing center or “E-file” for Schedule K-1, box C.')
+  }
+
+  if (draft.allocations.mode === 'custom') {
+    const percentagesAreValid = draft.partners.every((partner) =>
+      [partner.profitPercent, partner.lossPercent, partner.capitalPercent].every(
+        (value) => Number.isFinite(value) && value >= 0 && value <= 100,
+      ),
+    )
+    const profitTotal = draft.partners.reduce(
+      (sum, partner) => sum + partner.profitPercent,
+      0,
+    )
+    const lossTotal = draft.partners.reduce(
+      (sum, partner) => sum + partner.lossPercent,
+      0,
+    )
+    const capitalTotal = draft.partners.reduce(
+      (sum, partner) => sum + partner.capitalPercent,
+      0,
+    )
+    const beginningCapitalTotal = draft.partners.reduce(
+      (sum, partner) => sum + partner.beginningCapital,
+      0,
+    )
+    const contributedTotal = draft.partners.reduce(
+      (sum, partner) => sum + partner.capitalContributed,
+      0,
+    )
+    const distributionTotal = draft.partners.reduce(
+      (sum, partner) => sum + partner.cashDistributions,
+      0,
+    )
+    if (!percentagesAreValid) {
+      blockers.push('Every custom profit, loss, and capital percentage must be between 0% and 100%.')
+    }
+    if (Math.abs(profitTotal - 100) > 0.01) {
+      blockers.push('Custom profit percentages must add up to 100%.')
+    }
+    if (Math.abs(lossTotal - 100) > 0.01) {
+      blockers.push('Custom loss percentages must add up to 100%.')
+    }
+    if (Math.abs(capitalTotal - 100) > 0.01) {
+      blockers.push('Custom capital percentages must add up to 100%.')
+    }
+    if (Math.abs(beginningCapitalTotal - draft.finances.beginningCapital) > 0.01) {
+      blockers.push('Partner beginning capital amounts must equal total beginning capital.')
+    }
+    if (Math.abs(contributedTotal - draft.finances.memberContributions) > 0.01) {
+      blockers.push('Partner contribution amounts must equal total member contributions.')
+    }
+    if (Math.abs(distributionTotal - draft.finances.cashDistributions) > 0.01) {
+      blockers.push('Partner distribution amounts must equal total cash distributions.')
+    }
   }
 
   if (draft.finances.grossReceipts >= 2_000) {
@@ -194,13 +303,13 @@ export function evaluateEligibility(draft: ReturnDraft): EligibilityResult {
       'Schedule B question 4 will be “No,” so the draft completes the simple Schedule L, M-1, and M-2 instead of using the small-partnership exception.',
     )
   }
-  if (draft.partners.some((partner) => partner.ownershipPercent >= 50)) {
+  if (draft.partners.some((partner) => maximumB1Percent(draft, partner) >= 50)) {
     warnings.push(
-      'Schedule B-1 is likely required because an individual owns 50% or more. This app flags but does not generate Schedule B-1.',
+      'Schedule B-1 is included because at least one partner owns 50% or more. Confirm direct and indirect ownership attribution rules.',
     )
   }
   warnings.push(
-    'One Schedule K-1 is generally required for each partner. This MVP does not generate Schedules K-1.',
+    'The package includes one Schedule K-1 per partner. Confirm partner classifications, allocations, capital accounts, and delivery requirements.',
   )
   warnings.push(
     'Partner classification, allocations, basis, liabilities, state returns, signatures, and filing method require separate review.',
@@ -271,6 +380,31 @@ export function effectivePartnerAddress(
   return partner.useBusinessAddress
     ? draft.business.address
     : partner.address
+}
+
+function maximumB1Percent(
+  draft: ReturnDraft,
+  partner: ReturnDraft['partners'][number],
+): number {
+  if (draft.allocations.mode === 'ownership') return partner.ownershipPercent
+  return Math.max(
+    partner.profitPercent,
+    partner.lossPercent,
+    partner.capitalPercent,
+  )
+}
+
+function isUnitedStatesCountry(country: string): boolean {
+  return /^(united states|u\.?s\.?a?\.?)$/i.test(country.trim())
+}
+
+function isCompleteAddress(address: ReturnDraft['business']['address']): boolean {
+  return Boolean(
+    address.street.trim() &&
+    address.city.trim() &&
+    /^[A-Z]{2}$/.test(address.state) &&
+    /^\d{5}(?:-\d{4})?$/.test(address.zip),
+  )
 }
 
 export function representativeDetails(draft: ReturnDraft) {

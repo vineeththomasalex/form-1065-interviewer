@@ -23,8 +23,9 @@ describe('Form 1065 generation', () => {
     }
     draft.partners[0].firstName = 'Alex'
     draft.partners[0].lastName = 'Manager'
-    draft.partners[1].firstName = 'Jordan'
-    draft.partners[1].lastName = 'Partner'
+    draft.partners[1].ownerKind = 'entity'
+    draft.partners[1].displayName = 'Partner Holdings Inc'
+    draft.partners[1].entityType = 'S corporation'
     draft.filing.extensionFiled = 'no'
     draft.filing.schedulesK1Timely = 'no'
     draft.finances.grossReceipts = 900
@@ -45,6 +46,8 @@ describe('Form 1065 generation', () => {
     expect(text(form, 'f5_01[0]')).toBe('600')
     expect(checked(form, 'c2_3[0]')).toBe(true)
     expect(checked(form, 'c2_3[1]')).toBe(false)
+    expect(checked(form, 'c2_2[0]')).toBe(true)
+    expect(checked(form, 'c2_2[1]')).toBe(false)
     expect(result.getPageCount()).toBe(7)
   })
 })

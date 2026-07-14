@@ -351,6 +351,13 @@ textarea:focus {
   outline: none;
 }
 
+input:disabled,
+select:disabled {
+  color: #b6c3cd;
+  background: #15202a;
+  cursor: not-allowed;
+}
+
 textarea {
   resize: vertical;
   line-height: 1.55;
@@ -490,6 +497,43 @@ textarea {
   font-size: 0.7rem;
 }
 
+.official-form-grid {
+  margin: 20px 0 26px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.official-form-link {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text);
+  background: #0e1821;
+  text-decoration: none;
+}
+
+.official-form-link:hover {
+  border-color: var(--accent);
+}
+
+.official-form-link span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.official-form-link small {
+  margin-top: auto;
+  color: var(--accent-strong);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
 .input-suffix,
 .money-input {
   position: relative;
@@ -534,6 +578,10 @@ textarea {
   background: #0c161e;
 }
 
+.calculation-strip.compact {
+  margin-top: 16px;
+}
+
 .calculation-strip div {
   display: flex;
   flex-direction: column;
@@ -567,6 +615,17 @@ textarea {
   color: #f5dba9;
   border: 1px solid #735725;
   background: rgba(60, 46, 25, 0.65);
+}
+
+.allocation-checks {
+  margin: 20px 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.allocation-checks .inline-notice {
+  margin: 0;
 }
 
 .review-grid {
@@ -774,6 +833,8 @@ footer {
   .field-grid,
   .field-grid.three,
   .complexity-grid,
+  .official-form-grid,
+  .allocation-checks,
   .review-grid,
   .calculation-strip {
     grid-template-columns: 1fr;
