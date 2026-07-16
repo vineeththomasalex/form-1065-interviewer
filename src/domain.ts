@@ -16,6 +16,12 @@ export const OFFICIAL_SOURCES = {
     'https://www.irs.gov/pub/irs-prior/i1065sk1--2025.pdf',
   scheduleK1Landing:
     'https://www.irs.gov/forms-pubs/about-schedule-k-1-form-1065',
+  usPersonDefinition:
+    'https://www.irs.gov/businesses/international-businesses/foreign-persons',
+  alienTaxStatus:
+    'https://www.irs.gov/individuals/international-taxpayers/alien-tax-status',
+  substantialPresence:
+    'https://www.irs.gov/individuals/international-taxpayers/substantial-presence-test',
 }
 
 export const activityPresets = [
@@ -201,9 +207,29 @@ export function evaluateEligibility(draft: ReturnDraft): EligibilityResult {
     if (!/^(?:\d{2}-?\d{7}|\d{3}-?\d{2}-?\d{4})$/.test(partner.taxId)) {
       blockers.push(`${name || 'Each partner'} needs a valid nine-digit SSN or TIN for Schedule K-1.`)
     }
-    if (!isUnitedStatesCountry(partner.country)) {
+    if (!partner.country.trim()) {
       blockers.push(
-        `${name || 'Each partner'} is not identified as a U.S. partner; foreign partners are outside this guided path.`,
+        `${name || 'Each partner'} needs a citizenship or organization country.`,
+      )
+    }
+    if (
+      partner.ownerKind === 'individual' &&
+      partner.immigrationStatus === 'unknown'
+    ) {
+      blockers.push(`${name || 'Each individual partner'} needs an immigration or citizenship status.`)
+    }
+    if (
+      partner.ownerKind === 'individual' &&
+      partner.immigrationStatus === 'other' &&
+      !partner.customImmigrationStatus.trim()
+    ) {
+      blockers.push(`${name || 'Each individual partner'} needs a custom immigration status description.`)
+    }
+    if (partner.taxPersonStatus === 'unknown') {
+      blockers.push(`${name || 'Each partner'} needs an IRS U.S.-person tax classification.`)
+    } else if (partner.taxPersonStatus === 'foreign-person') {
+      blockers.push(
+        `${name || 'Each partner'} is classified as a foreign partner for tax purposes; foreign partners are outside this guided path.`,
       )
     }
     if (partner.ownerKind === 'entity' && !partner.entityType.trim()) {
@@ -211,6 +237,15 @@ export function evaluateEligibility(draft: ReturnDraft): EligibilityResult {
     }
     if (!isCompleteAddress(effectivePartnerAddress(draft, partner))) {
       blockers.push(`${name || 'Each partner'} needs a complete Schedule K-1 mailing address.`)
+    }
+    if (
+      partner.ownerKind === 'individual' &&
+      partner.immigrationStatus === 'h1b' &&
+      partner.taxPersonStatus === 'us-person'
+    ) {
+      warnings.push(
+        `${name || 'The H-1B partner'} is treated as a U.S. person only because you confirmed resident-alien tax status; H-1B status alone does not establish it. Confirm the substantial presence or other applicable residency test.`,
+      )
     }
   }
 
@@ -392,10 +427,6 @@ function maximumB1Percent(
     partner.lossPercent,
     partner.capitalPercent,
   )
-}
-
-function isUnitedStatesCountry(country: string): boolean {
-  return /^(united states|u\.?s\.?a?\.?)$/i.test(country.trim())
 }
 
 function isCompleteAddress(address: ReturnDraft['business']['address']): boolean {

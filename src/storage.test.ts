@@ -39,17 +39,71 @@ describe('browser persistence boundary', () => {
       ],
     })
 
-    expect(migrated?.version).toBe(2)
+    expect(migrated?.version).toBe(3)
     expect(migrated?.currentStep).toBe(10)
     expect(migrated?.allocations.mode).toBe('ownership')
     expect(migrated?.partners[0]).toMatchObject({
       ownerKind: 'individual',
       entityType: 'Individual',
       taxId: '',
-      country: 'United States',
+      country: '',
+      immigrationStatus: 'unknown',
+      customImmigrationStatus: '',
+      taxPersonStatus: 'unknown',
       profitPercent: 100,
       lossPercent: 100,
       capitalPercent: 100,
+    })
+  })
+
+  it('preserves explicit version 3 non-citizen U.S.-person classifications', () => {
+    const draft = createDefaultDraft()
+    draft.partners[0].country = 'India'
+    draft.partners[0].immigrationStatus = 'h1b'
+    draft.partners[0].taxPersonStatus = 'us-person'
+
+    const migrated = migrateDraft(draft)
+
+    expect(migrated?.partners[0]).toMatchObject({
+      country: 'India',
+      immigrationStatus: 'h1b',
+      taxPersonStatus: 'us-person',
+    })
+  })
+
+  it('requires confirmation when a version 2 partner had non-U.S. citizenship', () => {
+    const draft = createDefaultDraft()
+    const legacy = {
+      ...draft,
+      version: 2,
+      partners: draft.partners.map((partner) => ({
+        id: partner.id,
+        ownerKind: partner.ownerKind,
+        firstName: partner.firstName,
+        lastName: partner.lastName,
+        displayName: partner.displayName,
+        entityType: partner.entityType,
+        taxId: partner.taxId,
+        country: 'India',
+        ownershipPercent: partner.ownershipPercent,
+        profitPercent: partner.profitPercent,
+        lossPercent: partner.lossPercent,
+        capitalPercent: partner.capitalPercent,
+        isManagingMember: partner.isManagingMember,
+        useBusinessAddress: partner.useBusinessAddress,
+        address: partner.address,
+        beginningCapital: partner.beginningCapital,
+        capitalContributed: partner.capitalContributed,
+        cashDistributions: partner.cashDistributions,
+      })),
+    }
+
+    const migrated = migrateDraft(legacy)
+
+    expect(migrated?.partners[0]).toMatchObject({
+      country: 'India',
+      immigrationStatus: 'unknown',
+      taxPersonStatus: 'unknown',
     })
   })
 })

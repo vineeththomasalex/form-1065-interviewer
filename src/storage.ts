@@ -41,14 +41,14 @@ export function migrateDraft(value: unknown): ReturnDraft | undefined {
     partners?: LegacyPartner[]
   }
   const defaults = createDefaultDraft()
-  if (source.version !== 1 && source.version !== 2) {
+  if (source.version !== 1 && source.version !== 2 && source.version !== 3) {
     return undefined
   }
 
   return {
     ...defaults,
     ...source,
-    version: 2,
+    version: 3,
     currentStep:
       source.version === 1 && (source.currentStep ?? 0) >= 8
         ? Math.min((source.currentStep ?? 0) + 1, 10)
@@ -82,9 +82,29 @@ export function migrateDraft(value: unknown): ReturnDraft | undefined {
         allocationPercent ??
         partner.ownershipPercent ??
         partnerDefaults.ownershipPercent
+      const ownerKind = partner.ownerKind ?? partnerDefaults.ownerKind
+      const country =
+        partner.country ??
+        (source.version === 1 ? '' : partnerDefaults.country)
+      const legacyUsPerson =
+        source.version === 2 &&
+        typeof partner.country === 'string' &&
+        isUnitedStatesCountry(partner.country)
       return {
         ...partnerDefaults,
         ...partnerSource,
+        country,
+        immigrationStatus:
+          partner.immigrationStatus ??
+          (ownerKind === 'individual'
+            ? legacyUsPerson
+              ? 'us-citizen'
+              : 'unknown'
+            : 'not-applicable'),
+        customImmigrationStatus: partner.customImmigrationStatus ?? '',
+        taxPersonStatus:
+          partner.taxPersonStatus ??
+          (legacyUsPerson ? 'us-person' : 'unknown'),
         profitPercent: partner.profitPercent ?? legacyPercent,
         lossPercent: partner.lossPercent ?? legacyPercent,
         capitalPercent: partner.capitalPercent ?? legacyPercent,
@@ -115,6 +135,9 @@ function createPartnerDefaults(index: number): Partner {
     entityType: 'Individual',
     taxId: '',
     country: 'United States',
+    immigrationStatus: 'unknown',
+    customImmigrationStatus: '',
+    taxPersonStatus: 'unknown',
     ownershipPercent: index < 2 ? 50 : 0,
     profitPercent: index < 2 ? 50 : 0,
     lossPercent: index < 2 ? 50 : 0,
@@ -126,4 +149,8 @@ function createPartnerDefaults(index: number): Partner {
     capitalContributed: 0,
     cashDistributions: 0,
   }
+}
+
+function isUnitedStatesCountry(country: string): boolean {
+  return /^(united states|u\.?s\.?a?\.?)$/i.test(country.trim())
 }

@@ -12,6 +12,7 @@ The guided path is intentionally limited to:
 - A calendar tax year ending December 31, 2025
 - One managing member with at least 50% ownership
 - Two to four partners with no ownership changes during 2025
+- Individual partners may be non-U.S. citizens who are U.S. persons for federal tax purposes, including lawful permanent residents and H-1B holders who independently meet the applicable resident-alien test
 - Cash-basis records
 - Less than $2,000 in actual customer receipts
 - Simple member capital contributions and cash distributions
@@ -33,6 +34,7 @@ The interview explicitly separates **customer receipts** from **member contribut
 - State partnership returns
 - E-file data
 - Indirect-ownership tracing for Schedule B-1
+- Foreign partners or nonresident aliens
 - Partner basis, liabilities, or specialized capital-account tax positions
 - A reasonable-cause request or guarantee of penalty relief
 - Signatures or a filing-ready representation
@@ -55,6 +57,9 @@ The application is a preparation aid, not tax, legal, accounting, or filing advi
 - [Schedule B-1 PDF](https://www.irs.gov/pub/irs-pdf/f1065sb1.pdf)
 - [2025 Schedule K-1 PDF](https://www.irs.gov/pub/irs-prior/f1065sk1--2025.pdf)
 - [2025 Instructions for Schedule K-1](https://www.irs.gov/pub/irs-prior/i1065sk1--2025.pdf)
+- [IRS alien tax status and green card test](https://www.irs.gov/individuals/international-taxpayers/alien-tax-status)
+- [IRS substantial presence test](https://www.irs.gov/individuals/international-taxpayers/substantial-presence-test)
+- [IRS definition of U.S. and foreign persons](https://www.irs.gov/businesses/international-businesses/foreign-persons)
 - [About Form 1065](https://www.irs.gov/forms-pubs/about-form-1065)
 
 The pinned IRS PDFs are stored in `public/forms/` so PDF generation works reliably on GitHub Pages without depending on cross-origin browser access to IRS servers.

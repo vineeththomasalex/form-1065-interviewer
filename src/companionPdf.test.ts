@@ -40,7 +40,7 @@ describe('companion schedule generation', () => {
     expect(text(b1Form, 'f1_7[0]')).toBe('50%')
     expect(text(b1Form, 'f1_38[0]')).toBe('Alex Manager')
     expect(text(b1Form, 'f1_39[0]')).toBe('111-22-3333')
-    expect(text(b1Form, 'f1_40[0]')).toBe('United States')
+    expect(text(b1Form, 'f1_40[0]')).toBe('India')
     expect(text(b1Form, 'f1_41[0]')).toBe('50%')
 
     const k1 = await PDFDocument.load(
@@ -58,6 +58,8 @@ describe('companion schedule generation', () => {
     expect(text(k1Form, 'f1_34[0]')).toBe('300')
     expect(checked(k1Form, 'c1_4[0]')).toBe(true)
     expect(checked(k1Form, 'c1_4[1]')).toBe(false)
+    expect(checked(k1Form, 'c1_5[0]')).toBe(true)
+    expect(checked(k1Form, 'c1_5[1]')).toBe(false)
   })
 
   it('merges Form 1065, B-1 page 1, and one K-1 per partner', async () => {
@@ -132,10 +134,15 @@ function populatedDraft() {
   draft.partners[0].firstName = 'Alex'
   draft.partners[0].lastName = 'Manager'
   draft.partners[0].taxId = '111-22-3333'
+  draft.partners[0].country = 'India'
+  draft.partners[0].immigrationStatus = 'lawful-permanent-resident'
+  draft.partners[0].taxPersonStatus = 'us-person'
   draft.partners[1].ownerKind = 'entity'
   draft.partners[1].displayName = 'Partner Holdings Inc'
   draft.partners[1].entityType = 'S corporation'
   draft.partners[1].taxId = '98-7654321'
+  draft.partners[1].immigrationStatus = 'not-applicable'
+  draft.partners[1].taxPersonStatus = 'us-person'
   draft.filing.extensionFiled = 'no'
   draft.filing.schedulesK1Timely = 'no'
   draft.finances.grossReceipts = 900

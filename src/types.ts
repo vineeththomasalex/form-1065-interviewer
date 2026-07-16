@@ -1,4 +1,12 @@
 export type YesNoUnknown = 'yes' | 'no' | 'unknown'
+export type ImmigrationStatus =
+  | 'unknown'
+  | 'us-citizen'
+  | 'lawful-permanent-resident'
+  | 'h1b'
+  | 'other'
+  | 'not-applicable'
+export type TaxPersonStatus = 'unknown' | 'us-person' | 'foreign-person'
 
 export interface Address {
   street: string
@@ -17,6 +25,9 @@ export interface Partner {
   entityType: string
   taxId: string
   country: string
+  immigrationStatus: ImmigrationStatus
+  customImmigrationStatus: string
+  taxPersonStatus: TaxPersonStatus
   ownershipPercent: number
   profitPercent: number
   lossPercent: number
@@ -51,7 +62,7 @@ export interface ComplexityAnswers {
 }
 
 export interface ReturnDraft {
-  version: 2
+  version: 3
   currentStep: number
   scope: {
     domesticLlc: boolean

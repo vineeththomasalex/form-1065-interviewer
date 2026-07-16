@@ -9,7 +9,7 @@ export const emptyAddress = (): Address => ({
 })
 
 export const createDefaultDraft = (): ReturnDraft => ({
-  version: 2,
+  version: 3,
   currentStep: 0,
   scope: {
     domesticLlc: true,
@@ -40,6 +40,9 @@ export const createDefaultDraft = (): ReturnDraft => ({
       entityType: 'Individual',
       taxId: '',
       country: 'United States',
+      immigrationStatus: 'unknown',
+      customImmigrationStatus: '',
+      taxPersonStatus: 'unknown',
       ownershipPercent: 50,
       profitPercent: 50,
       lossPercent: 50,
@@ -60,6 +63,9 @@ export const createDefaultDraft = (): ReturnDraft => ({
       entityType: 'Individual',
       taxId: '',
       country: 'United States',
+      immigrationStatus: 'unknown',
+      customImmigrationStatus: '',
+      taxPersonStatus: 'unknown',
       ownershipPercent: 50,
       profitPercent: 50,
       lossPercent: 50,

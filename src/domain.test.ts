@@ -22,9 +22,15 @@ function validDraft() {
   draft.partners[0].firstName = 'Alex'
   draft.partners[0].lastName = 'Manager'
   draft.partners[0].taxId = '111-22-3333'
+  draft.partners[0].country = 'India'
+  draft.partners[0].immigrationStatus = 'lawful-permanent-resident'
+  draft.partners[0].taxPersonStatus = 'us-person'
   draft.partners[1].firstName = 'Jordan'
   draft.partners[1].lastName = 'Partner'
   draft.partners[1].taxId = '444-55-6666'
+  draft.partners[1].country = 'India'
+  draft.partners[1].immigrationStatus = 'h1b'
+  draft.partners[1].taxPersonStatus = 'us-person'
   draft.filing.extensionFiled = 'no'
   draft.filing.schedulesK1Timely = 'no'
   draft.finances.grossReceipts = 900
@@ -52,6 +58,7 @@ describe('golden-path calculations', () => {
     const result = evaluateEligibility(validDraft())
     expect(result.blockers).toEqual([])
     expect(result.warnings.some((warning) => warning.includes('Schedule B-1'))).toBe(true)
+    expect(result.warnings.some((warning) => warning.includes('H-1B'))).toBe(true)
   })
 
   it('blocks unsupported complexity', () => {
@@ -117,6 +124,17 @@ describe('golden-path calculations', () => {
     expect(blockers).toContain(
       'Alex Manager needs a complete Schedule K-1 mailing address.',
     )
+  })
+
+  it('blocks a partner classified as a foreign person rather than by citizenship country', () => {
+    const draft = validDraft()
+    draft.partners[1].taxPersonStatus = 'foreign-person'
+
+    expect(
+      evaluateEligibility(draft).blockers.some((blocker) =>
+        blocker.includes('classified as a foreign partner for tax purposes'),
+      ),
+    ).toBe(true)
   })
 })
 

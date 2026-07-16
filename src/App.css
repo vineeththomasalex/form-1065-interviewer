@@ -407,6 +407,10 @@ textarea {
   line-height: 1.55;
 }
 
+.info-block a {
+  color: var(--accent-strong);
+}
+
 .confirmation-list,
 .complexity-grid {
   display: grid;

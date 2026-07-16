@@ -11,7 +11,6 @@ import {
   setText,
 } from './pdf'
 import {
-  isUnitedStatesCountry,
   maximumScheduleB1Percent,
   partnerDisplayName,
   partnerEntityType,
@@ -141,7 +140,7 @@ export async function generateScheduleK1(
   selectCheckboxOption(
     form,
     'c1_5',
-    isUnitedStatesCountry(partner.country) ? 0 : 1,
+    partner.taxPersonStatus === 'us-person' ? 0 : 1,
     2,
   )
   setText(form, 'f1_13[0]', partnerEntityType(partner))

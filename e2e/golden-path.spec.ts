@@ -44,6 +44,25 @@ test('completes the golden path, downloads a filing package, and protects tax ID
 
   await page.getByLabel('SSN or TIN').nth(0).fill('111-22-3333')
   await page.getByLabel('SSN or TIN').nth(1).fill('444-55-6666')
+  await page
+    .getByLabel('Citizenship or immigration status for 2025')
+    .nth(0)
+    .selectOption('lawful-permanent-resident')
+  await page
+    .getByLabel('Citizenship or immigration status for 2025')
+    .nth(1)
+    .selectOption('h1b')
+  await expect(page.getByLabel('Country of citizenship').nth(0)).toHaveValue('')
+  await expect(page.getByLabel('Country of citizenship').nth(1)).toHaveValue('')
+  await page.getByLabel('Country of citizenship').nth(0).fill('India')
+  await page.getByLabel('Country of citizenship').nth(1).fill('India')
+  await page
+    .getByLabel('IRS tax classification for 2025')
+    .nth(1)
+    .selectOption('us-person')
+  await expect(
+    page.getByText('H-1B status does not automatically determine tax residency'),
+  ).toBeVisible()
   await expect(
     page.getByRole('link', { name: '2025 Schedule K-1', exact: true }),
   ).toHaveAttribute(
@@ -76,4 +95,10 @@ test('completes the golden path, downloads a filing package, and protects tax ID
   await page.getByRole('button', { name: 'Partner schedules' }).click()
   await expect(page.getByLabel('SSN or TIN').nth(0)).toHaveValue('')
   await expect(page.getByLabel('SSN or TIN').nth(1)).toHaveValue('')
+  await expect(
+    page.getByLabel('Citizenship or immigration status for 2025').nth(1),
+  ).toHaveValue('h1b')
+  await expect(page.getByLabel('IRS tax classification for 2025').nth(1)).toHaveValue(
+    'us-person',
+  )
 })

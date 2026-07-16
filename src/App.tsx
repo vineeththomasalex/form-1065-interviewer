@@ -17,7 +17,6 @@ import {
 } from './domain'
 import {
   allocationTotals,
-  isUnitedStatesCountry,
   maximumScheduleB1Percent,
   partnerDisplayName,
   partnerEntityType,
@@ -33,8 +32,10 @@ import {
 import type {
   Address,
   ComplexityAnswers,
+  ImmigrationStatus,
   Partner,
   ReturnDraft,
+  TaxPersonStatus,
   YesNoUnknown,
 } from './types'
 
@@ -243,6 +244,8 @@ function App() {
             <a href={OFFICIAL_SOURCES.scheduleB1} target="_blank">Schedule B-1</a>
             <a href={OFFICIAL_SOURCES.scheduleK1} target="_blank">2025 Schedule K-1</a>
             <a href={OFFICIAL_SOURCES.scheduleK1Instructions} target="_blank">K-1 instructions</a>
+            <a href={OFFICIAL_SOURCES.alienTaxStatus} target="_blank">IRS alien tax status</a>
+            <a href={OFFICIAL_SOURCES.substantialPresence} target="_blank">Substantial presence test</a>
             <a href={OFFICIAL_SOURCES.landing} target="_blank">IRS Form 1065 page</a>
           </div>
         </aside>
@@ -591,6 +594,7 @@ function PartnersStep({
                 className="text-button danger"
                 onClick={() => updateDraft((current) => {
                   current.partners = current.partners.filter((item) => item.id !== partner.id)
+                  syncForeignPartnerAnswer(current)
                   return current
                 })}
               >
@@ -605,14 +609,24 @@ function PartnersStep({
                 disabled={partner.isManagingMember}
                 onChange={(event) => {
                   const ownerKind = event.target.value as Partner['ownerKind']
-                  updatePartner(updateDraft, partner.id, {
-                    ownerKind,
-                    entityType:
-                      ownerKind === 'individual'
-                        ? 'Individual'
-                        : ownerKind === 'estate'
-                          ? 'Estate'
-                          : '',
+                  updateDraft((current) => {
+                    const currentPartner = current.partners.find((item) => item.id === partner.id)
+                    if (!currentPartner) return current
+                    Object.assign(currentPartner, {
+                      ownerKind,
+                      entityType:
+                        ownerKind === 'individual'
+                          ? 'Individual'
+                          : ownerKind === 'estate'
+                            ? 'Estate'
+                            : '',
+                      immigrationStatus:
+                        ownerKind === 'individual' ? 'unknown' : 'not-applicable',
+                      customImmigrationStatus: '',
+                      taxPersonStatus: 'unknown',
+                    })
+                    syncForeignPartnerAnswer(current)
+                    return current
                   })
                 }}
               >
@@ -703,6 +717,9 @@ function PartnersStep({
             entityType: 'Individual',
             taxId: '',
             country: 'United States',
+            immigrationStatus: 'unknown',
+            customImmigrationStatus: '',
+            taxPersonStatus: 'unknown',
             ownershipPercent: 0,
             profitPercent: 0,
             lossPercent: 0,
@@ -748,6 +765,18 @@ function PartnerSchedulesStep({
         These answers populate Schedule B-1 and one Schedule K-1 for each partner.
         Tax IDs remain only in the current tab and are removed from automatic browser saves.
       </p>
+      <InfoBlock title="Citizenship and IRS tax status are different">
+        A non-U.S. citizen can still be a U.S. person for federal tax purposes. Lawful permanent
+        residents generally meet the green card test. H-1B status alone is not enough; an H-1B
+        holder may be a resident alien after meeting the substantial presence test.{' '}
+        <a href={OFFICIAL_SOURCES.alienTaxStatus} target="_blank" rel="noreferrer">
+          IRS alien tax status
+        </a>
+        {' · '}
+        <a href={OFFICIAL_SOURCES.substantialPresence} target="_blank" rel="noreferrer">
+          substantial presence test
+        </a>
+      </InfoBlock>
       <div className="official-form-grid">
         <OfficialFormLink
           title="Schedule B-1"
@@ -797,14 +826,7 @@ function PartnerSchedulesStep({
               >
                 <input
                   value={partner.country}
-                  onChange={(event) => updateDraft((current) => {
-                    const currentPartner = current.partners.find((item) => item.id === partner.id)
-                    if (currentPartner) currentPartner.country = event.target.value
-                    current.complexity.foreignPartner = current.partners.some(
-                      (item) => item.country.trim() && !isUnitedStatesCountry(item.country),
-                    )
-                    return current
-                  })}
+                  onChange={(event) => updatePartner(updateDraft, partner.id, { country: event.target.value })}
                 />
               </Field>
               <Field label="K-1 entity type">
@@ -815,6 +837,91 @@ function PartnerSchedulesStep({
                 />
               </Field>
             </div>
+            <div className="field-grid">
+              {partner.ownerKind === 'individual' && (
+                <Field label="Citizenship or immigration status for 2025">
+                  <select
+                    value={partner.immigrationStatus}
+                    onChange={(event) => updateDraft((current) => {
+                      const currentPartner = current.partners.find((item) => item.id === partner.id)
+                      if (!currentPartner) return current
+                      const immigrationStatus = event.target.value as ImmigrationStatus
+                      currentPartner.immigrationStatus = immigrationStatus
+                      currentPartner.customImmigrationStatus =
+                        immigrationStatus === 'other'
+                          ? currentPartner.customImmigrationStatus
+                          : ''
+                      if (immigrationStatus === 'us-citizen') {
+                        currentPartner.country = 'United States'
+                        currentPartner.taxPersonStatus = 'us-person'
+                      } else if (immigrationStatus === 'lawful-permanent-resident') {
+                        if (isUnitedStatesCountry(currentPartner.country)) {
+                          currentPartner.country = ''
+                        }
+                        currentPartner.taxPersonStatus = 'us-person'
+                      } else if (
+                        immigrationStatus === 'h1b' ||
+                        immigrationStatus === 'other' ||
+                        immigrationStatus === 'unknown'
+                      ) {
+                        if (
+                          immigrationStatus === 'h1b' &&
+                          isUnitedStatesCountry(currentPartner.country)
+                        ) {
+                          currentPartner.country = ''
+                        }
+                        currentPartner.taxPersonStatus = 'unknown'
+                      }
+                      syncForeignPartnerAnswer(current)
+                      return current
+                    })}
+                  >
+                    <option value="unknown">Choose one</option>
+                    <option value="us-citizen">U.S. citizen</option>
+                    <option value="lawful-permanent-resident">Lawful permanent resident (green card)</option>
+                    <option value="h1b">H-1B visa holder</option>
+                    <option value="other">Other / custom</option>
+                  </select>
+                </Field>
+              )}
+              {partner.ownerKind === 'individual' && partner.immigrationStatus === 'other' && (
+                <Field label="Custom immigration or citizenship status">
+                  <input
+                    value={partner.customImmigrationStatus}
+                    onChange={(event) => updatePartner(updateDraft, partner.id, {
+                      customImmigrationStatus: event.target.value,
+                    })}
+                  />
+                </Field>
+              )}
+              <Field
+                label="IRS tax classification for 2025"
+                hint="Domestic/foreign on Schedule K-1 follows tax status—not citizenship or visa name"
+              >
+                <select
+                  value={partner.taxPersonStatus}
+                  onChange={(event) => updateDraft((current) => {
+                    const currentPartner = current.partners.find((item) => item.id === partner.id)
+                    if (currentPartner) {
+                      currentPartner.taxPersonStatus = event.target.value as TaxPersonStatus
+                    }
+                    syncForeignPartnerAnswer(current)
+                    return current
+                  })}
+                >
+                  <option value="unknown">I have not determined this yet</option>
+                  <option value="us-person">U.S. person / resident alien for federal tax</option>
+                  <option value="foreign-person">Foreign person / nonresident alien</option>
+                </select>
+              </Field>
+            </div>
+            {partner.immigrationStatus === 'h1b' && (
+              <InlineNotice tone={partner.taxPersonStatus === 'us-person' ? 'success' : 'warning'}>
+                H-1B status does not automatically determine tax residency. Select “U.S. person”
+                only after confirming this partner meets the substantial presence test or another
+                applicable resident-alien rule.
+              </InlineNotice>
+            )}
             {draft.allocations.mode === 'ownership' && (
               <div className="calculation-strip compact">
                 <SummaryMetric label="Income allocation" value={values.currentYearIncome} />
@@ -907,12 +1014,10 @@ function PartnerSchedulesStep({
           <AllocationCheck label="Distributions" actual={totals.cashDistributions} expected={draft.finances.cashDistributions} />
         </div>
       )}
-      {draft.partners.some(
-        (partner) => partner.country.trim() && !isUnitedStatesCountry(partner.country),
-      ) && (
+      {draft.partners.some((partner) => partner.taxPersonStatus === 'foreign-person') && (
         <InlineNotice tone="warning">
-          Foreign partners are outside this guided path. Change the country or use professional
-          preparation for the additional withholding and reporting rules.
+          Foreign partners are outside this guided path. Use professional preparation for the
+          additional withholding and reporting rules.
         </InlineNotice>
       )}
       <InfoBlock title="Allocation review is still required" tone="warning">
@@ -1251,6 +1356,10 @@ function ReviewStep({
           <ReviewRow label="Legal name" value={draft.business.legalName} />
           <ReviewRow label="EIN" value={draft.business.ein || 'Not entered'} />
           <ReviewRow label="Partners" value={String(draft.partners.length)} />
+          <ReviewRow
+            label="U.S.-person partners"
+            value={`${draft.partners.filter((partner) => partner.taxPersonStatus === 'us-person').length} of ${draft.partners.length}`}
+          />
           <ReviewRow label="Managing owner" value={`${draft.partners.find((partner) => partner.isManagingMember)?.ownershipPercent ?? 0}%`} />
         </ReviewSection>
         <ReviewSection title="2025 activity">
@@ -1535,6 +1644,16 @@ function ReviewRow({ label, value }: { label: string; value: string }) {
   )
 }
 
+function syncForeignPartnerAnswer(draft: ReturnDraft) {
+  draft.complexity.foreignPartner = draft.partners.some(
+    (partner) => partner.taxPersonStatus === 'foreign-person',
+  )
+}
+
+function isUnitedStatesCountry(country: string): boolean {
+  return /^(united states|u\.?s\.?a?\.?)$/i.test(country.trim())
+}
+
 function updatePartner(
   updateDraft: (update: (current: ReturnDraft) => ReturnDraft) => void,
   id: string,
@@ -1630,7 +1749,12 @@ function validateStep(step: number, draft: ReturnDraft): boolean {
         draft.partners.every(
           (partner) =>
             /^(?:\d{2}-?\d{7}|\d{3}-?\d{2}-?\d{4})$/.test(partner.taxId) &&
-            isUnitedStatesCountry(partner.country),
+            partner.country.trim() &&
+            partner.taxPersonStatus === 'us-person' &&
+            (partner.ownerKind !== 'individual' ||
+              (partner.immigrationStatus !== 'unknown' &&
+                (partner.immigrationStatus !== 'other' ||
+                  partner.customImmigrationStatus.trim()))),
         ) &&
         (draft.allocations.mode !== 'custom' ||
           (percentagesAreValid &&

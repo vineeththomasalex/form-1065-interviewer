@@ -105,10 +105,6 @@ export function maximumScheduleB1Percent(
   )
 }
 
-export function isUnitedStatesCountry(country: string): boolean {
-  return /^(united states|u\.?s\.?a?\.?)$/i.test(country.trim())
-}
-
 export function allocationTotals(draft: ReturnDraft) {
   return {
     profitPercent: draft.partners.reduce(

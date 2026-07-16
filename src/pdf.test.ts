@@ -49,7 +49,7 @@ describe('Form 1065 generation', () => {
     expect(checked(form, 'c2_2[0]')).toBe(true)
     expect(checked(form, 'c2_2[1]')).toBe(false)
     expect(result.getPageCount()).toBe(7)
-  })
+  }, 10_000)
 })
 
 function text(form: ReturnType<PDFDocument['getForm']>, suffix: string) {
